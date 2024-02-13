@@ -69,6 +69,8 @@
 #define NUM_SHORT_DISTANCES             120
 #define MAX_HUFFMAN_CODE_LENGTH         15
 
+#define ANIM_LOOP_COUNT_INFINITY        0
+
 static const uint16_t alphabet_sizes[HUFFMAN_CODES_PER_META_CODE] = {
     NUM_LITERAL_CODES + NUM_LENGTH_CODES,
     NUM_LITERAL_CODES, NUM_LITERAL_CODES, NUM_LITERAL_CODES,
@@ -204,6 +206,7 @@ typedef struct WebPContext {
     int alpha_data_size;                /* alpha chunk data size */
     int has_exif;                       /* set after an EXIF chunk has been processed */
     int has_iccp;                       /* set after an ICCP chunk has been processed */
+    //int has_anim;                       /* set after an ANIM chunk has been processed */
     int width;                          /* image width */
     int height;                         /* image height */
     int lossless;                       /* indicates lossless or lossy */
@@ -1127,6 +1130,7 @@ static int vp8_lossless_decode_frame(AVCodecContext *avctx, AVFrame *p,
         h = s->height;
     }
 
+
     /* parse transformations */
     s->nb_transforms = 0;
     s->reduced_width = s->width;
@@ -1155,6 +1159,7 @@ static int vp8_lossless_decode_frame(AVCodecContext *avctx, AVFrame *p,
         if (ret < 0)
             goto free_and_return;
     }
+
 
     /* decode primary image */
     s->image[IMAGE_ROLE_ARGB].frame = p;
@@ -1192,6 +1197,8 @@ static int vp8_lossless_decode_frame(AVCodecContext *avctx, AVFrame *p,
 free_and_return:
     for (i = 0; i < IMAGE_ROLE_NB; i++)
         image_ctx_free(&s->image[i]);
+
+    av_log(avctx, AV_LOG_WARNING, "Got here 5\n");
 
     return ret;
 }
@@ -1307,6 +1314,8 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
     avctx->pix_fmt = s->has_alpha ? AV_PIX_FMT_YUVA420P : AV_PIX_FMT_YUV420P;
     s->lossless = 0;
 
+    av_log(avctx, AV_LOG_WARNING, "Got here 1\n");
+
     if (data_size > INT_MAX) {
         av_log(avctx, AV_LOG_ERROR, "unsupported chunk size\n");
         return AVERROR_PATCHWELCOME;
@@ -1316,21 +1325,33 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
     s->pkt->data = data_start;
     s->pkt->size = data_size;
 
+    av_log(avctx, AV_LOG_WARNING, "Got here 2\n");
+
+    //start of problem
     ret = ff_vp8_decode_frame(avctx, p, got_frame, s->pkt);
     if (ret < 0)
         return ret;
 
+    av_log(avctx, AV_LOG_WARNING, "Got here 2 in between \n");
+
     if (!*got_frame)
         return AVERROR_INVALIDDATA;
 
+    //end of potential problem
+
+    av_log(avctx, AV_LOG_WARNING, "Got here 3\n");
+
     update_canvas_size(avctx, avctx->width, avctx->height);
 
+        av_log(avctx, AV_LOG_WARNING, "Got here 4\n");
     if (s->has_alpha) {
         ret = vp8_lossy_decode_alpha(avctx, p, s->alpha_data,
                                      s->alpha_data_size);
         if (ret < 0)
             return ret;
     }
+
+    av_log(avctx, AV_LOG_WARNING, "Got here 5\n");
     return ret;
 }
 
@@ -1407,6 +1428,8 @@ static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
             bytestream2_skip(&gb, chunk_size);
             break;
         case MKTAG('V', 'P', '8', 'X'):
+            av_log(avctx, AV_LOG_WARNING,
+                "VP8X\n");
             if (s->width || s->height || *got_frame) {
                 av_log(avctx, AV_LOG_ERROR, "Canvas dimensions are already set\n");
                 return AVERROR_INVALIDDATA;
@@ -1508,7 +1531,168 @@ exif_end:
             break;
         }
         case MKTAG('A', 'N', 'I', 'M'):
+
+
+            av_log(avctx, AV_LOG_WARNING,
+                "ANIM\n");
+
+            if (!(vp8x_flags & VP8X_FLAG_ANIMATION)) {
+               av_log(avctx, AV_LOG_WARNING,
+                       "ANIM chunk present, but Animation bit not set in the "
+                       "VP8X header\n");
+                bytestream2_skip(&gb, chunk_size);
+                break;
+            }
+
+            // if (s->has_anim) {
+            //    av_log(avctx, AV_LOG_WARNING, "Skipping duplicate ANIM chunk\n");
+            //     bytestream2_skip(&gb, chunk_size);
+            //     break;
+            // }
+            //s->has_anim = 1;
+
+            uint32_t background_color = bytestream2_get_le32(&gb);
+            // TODO: set background color for global context??
+
+            uint16_t loop_count = bytestream2_get_le16(&gb);
+
+
+            if (loop_count == ANIM_LOOP_COUNT_INFINITY) {
+                //TODO: set loop count to infinity??
+            }
+            else {
+                // TODO: set loop count for global context??
+            }
+
+            break;
+ 
         case MKTAG('A', 'N', 'M', 'F'):
+
+            av_log(avctx, AV_LOG_WARNING,
+                "ANMF\n");
+            // if (!(vp8x_flags & VP8X_FLAG_ANIMATION)) {
+            //    av_log(avctx, AV_LOG_WARNING,
+            //            "ANMF chunk present, but Animation bit not set in the "
+            //            "VP8X header\n");
+            //     bytestream2_skip(&gb, chunk_size);
+            //     break;
+            // }
+
+            av_log(avctx, AV_LOG_WARNING,
+                "we logging shit\n");
+
+            uint32_t frame_x        = bytestream2_get_le24(&gb);
+            uint32_t frame_y        = bytestream2_get_le24(&gb);
+            uint32_t frame_width   = bytestream2_get_le24(&gb) + 1;
+            uint32_t frame_height    = bytestream2_get_le24(&gb) + 1;
+            uint32_t frame_duration = bytestream2_get_le24(&gb);
+
+            s->height               = frame_height;
+            s->width                = frame_width;  
+
+            // //last 2 bits are blending method and disposal method
+            uint8_t reserved        = bytestream2_get_byte(&gb);
+            
+            uint8_t blending_method = (reserved << 1) >> 7; // get 2nd to last last bit
+
+            uint8_t disposal_method = reserved >> 7; // get last bit
+
+            //set number of seconds between start of a frame and end of a frame
+            //p->duration             = frame_duration;
+
+            // TODO: make sure the time_base logic is correct
+            int numerator = 1;
+            int denominator = 1000;
+            AVRational time_base = av_make_q(numerator, denominator);
+            //p->time_base = time_base;
+
+            // looping through subchunks of ANMF, stop when seeing another ANMF chunk
+            while (1) {
+                av_log(avctx, AV_LOG_WARNING,
+                        "top of loop\n");
+
+                if (bytestream2_peek_le32(&gb) == MKTAG('A', 'N', 'M', 'F')) {
+                    av_log(avctx, AV_LOG_WARNING,
+                        "ANMF\n");
+                    break;
+                }
+                if (bytestream2_peek_le32(&gb) == MKTAG('E', 'X', 'I', 'F')) {
+                    av_log(avctx, AV_LOG_WARNING,
+                        "EXIF\n");
+                    break;
+                }
+                if (bytestream2_peek_le32(&gb) == MKTAG('X', 'M', 'P', ' ')) {
+                    av_log(avctx, AV_LOG_WARNING,
+                        "XMP\n");
+                    break;
+                }
+
+                //todo: check if bytes less is less than
+                if (bytestream2_peek_le32(&gb) == MKTAG('E', 'X', 'I', 'F')) {
+                }
+
+
+                uint32_t sub_chunk_type = bytestream2_get_le32(&gb);
+                uint32_t sub_chunk_size = bytestream2_get_le32(&gb);
+                if (sub_chunk_size == UINT32_MAX)
+                    return AVERROR_INVALIDDATA;
+                sub_chunk_size += sub_chunk_size & 1;
+
+                switch (sub_chunk_type) {
+                case MKTAG('V', 'P', '8', ' '):
+
+                    av_log(avctx, AV_LOG_WARNING,
+                        "VP8");
+                    //todo: set the temp frame's width and height
+                    ret = vp8_lossy_decode_frame(avctx, p, got_frame,
+                                                avpkt->data + bytestream2_tell(&gb),
+                                                sub_chunk_size);
+
+                    av_log(avctx, AV_LOG_WARNING,
+                        "done decoding\n");
+                    if (ret < 0)
+                        return ret;
+                    bytestream2_skip(&gb, sub_chunk_size);
+                    break;
+
+                case MKTAG('V', 'P', '8', 'L'):
+                    av_log(avctx, AV_LOG_WARNING,
+                        "VP8L\n");
+                    //todo: set the temp frame's width and height
+                    ret = vp8_lossless_decode_frame(avctx, p, got_frame,
+                                                avpkt->data + bytestream2_tell(&gb),
+                                                sub_chunk_size, s->has_alpha);
+                    if (ret < 0)
+                        return ret;
+                    bytestream2_skip(&gb, sub_chunk_size);
+                    break;
+
+                case MKTAG('A', 'L', 'P', 'A'):
+                    av_log(avctx, AV_LOG_WARNING,
+                        "ALPHA\n");
+                    // maybe use alpha logic from above?
+                    bytestream2_skip(&gb, sub_chunk_size);
+                    break;
+
+                default:
+                    av_log(avctx, AV_LOG_WARNING,
+                        "UNKONWN CHUNKS\n");
+                    //skip since we are decoding
+                    //unknown chunks
+                    bytestream2_skip(&gb, sub_chunk_size);
+                    break;
+                }
+            }
+
+
+
+            av_log(avctx, AV_LOG_WARNING,
+                        "END OF A FRAME\n");
+            goto found_animf;
+            // copy frame onto another one, and put it in relative positions
+            break;
+
+
         case MKTAG('X', 'M', 'P', ' '):
             AV_WL32(chunk_str, chunk_type);
             av_log(avctx, AV_LOG_WARNING, "skipping unsupported chunk: %s\n",
@@ -1524,12 +1708,17 @@ exif_end:
         }
     }
 
+
+found_animf: //for animated images, we will return more than 1 frame, so leave unread bytes for next get_frame() call
+
+
     if (!*got_frame) {
         av_log(avctx, AV_LOG_ERROR, "image data not found\n");
         return AVERROR_INVALIDDATA;
     }
 
-    return avpkt->size;
+    //return avpkt->size;
+    return bytestream2_tell(&s->gb);
 }
 
 static av_cold int webp_decode_init(AVCodecContext *avctx)
@@ -1555,6 +1744,25 @@ static av_cold int webp_decode_close(AVCodecContext *avctx)
     return 0;
 }
 
+
+// maybe set time_base in options and also set duration in av_frame
+// TODO: figure out how to fill in av options and put in frame duration (possibly loop times as well?)
+// static const AVOption options[] = {
+//     { "trans_color", "color value (ARGB) that is used instead of transparent color",
+//       offsetof(GifState, trans_color), AV_OPT_TYPE_INT,
+//       {.i64 = GIF_TRANSPARENT_COLOR}, 0, 0xffffffff,
+//       AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_VIDEO_PARAM },
+//     { NULL },
+// };
+
+static const AVClass decoder_class = {
+    .class_name = "WebP decoder",
+    .item_name  = av_default_item_name,
+//    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+    .category   = AV_CLASS_CATEGORY_DECODER,
+};
+
 const FFCodec ff_webp_decoder = {
     .p.name         = "webp",
     CODEC_LONG_NAME("WebP image"),
@@ -1566,4 +1774,5 @@ const FFCodec ff_webp_decoder = {
     .close          = webp_decode_close,
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
     .caps_internal  = FF_CODEC_CAP_ICC_PROFILES,
+    .p.priv_class   = &decoder_class,
 };

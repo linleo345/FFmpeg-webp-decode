@@ -87,15 +87,15 @@ static void free_buffers(VP8Context *s)
         for (i = 0; i < MAX_THREADS; i++) {
 #if HAVE_THREADS
             pthread_cond_destroy(&s->thread_data[i].cond);
-            pthread_mutex_destroy(&s->thread_data[i].lock);
+            //pthread_mutex_destroy(&s->thread_data[i].lock);
 #endif
-            av_freep(&s->thread_data[i].filter_strength);
+            //av_freep(&s->thread_data[i].filter_strength);
         }
-    av_freep(&s->thread_data);
-    av_freep(&s->macroblocks_base);
-    av_freep(&s->intra4x4_pred_mode_top);
-    av_freep(&s->top_nnz);
-    av_freep(&s->top_border);
+    // av_freep(&s->thread_data);
+    // av_freep(&s->macroblocks_base);
+    // av_freep(&s->intra4x4_pred_mode_top);
+    // av_freep(&s->top_nnz);
+    // av_freep(&s->top_border);
 
     s->macroblocks = NULL;
 }
@@ -730,15 +730,24 @@ static int vp7_decode_frame_header(VP8Context *s, const uint8_t *buf, int buf_si
 
 static int vp8_decode_frame_header(VP8Context *s, const uint8_t *buf, int buf_size)
 {
+    av_log(s, AV_LOG_WARNING, "Got here pre1 vp8 header \n");
+
     VPXRangeCoder *c = &s->c;
     int header_size, hscale, vscale, ret;
     int width  = s->avctx->width;
     int height = s->avctx->height;
 
+    av_log(s, AV_LOG_WARNING, "Got here 1 vp8 header \n");
+
     if (buf_size < 3) {
+        av_log(s, AV_LOG_WARNING, "Got here 1 vp8 header whoops\n");
+
         av_log(s->avctx, AV_LOG_ERROR, "Insufficent data (%d) for header\n", buf_size);
         return AVERROR_INVALIDDATA;
     }
+
+    av_log(s, AV_LOG_WARNING, "Got here 2 vp8 header \n");
+
 
     s->keyframe  = !(buf[0] & 1);
     s->profile   =  (buf[0]>>1) & 7;
@@ -828,6 +837,7 @@ static int vp8_decode_frame_header(VP8Context *s, const uint8_t *buf, int buf_si
     if (!s->macroblocks_base || /* first frame */
         width != s->avctx->width || height != s->avctx->height ||
         (width+15)/16 != s->mb_width || (height+15)/16 != s->mb_height)
+        // todo: this thing below has problems:
         if ((ret = vp8_update_dimensions(s, width, height)) < 0)
             return ret;
 
@@ -2657,13 +2667,18 @@ int vp78_decode_frame(AVCodecContext *avctx, AVFrame *rframe, int *got_frame,
     enum AVDiscard skip_thresh;
     VP8Frame *av_uninit(curframe), *prev_frame;
 
+    av_log(avctx, AV_LOG_WARNING, "Got here vp8 1\n");
     if (is_vp7)
         ret = vp7_decode_frame_header(s, avpkt->data, avpkt->size);
-    else
+    else {
+        av_log(avctx, AV_LOG_WARNING, "Got here vp8 1.5 \n");
         ret = vp8_decode_frame_header(s, avpkt->data, avpkt->size);
+    }
+
 
     if (ret < 0)
         goto err;
+    av_log(avctx, AV_LOG_WARNING, "Got here vp8 2\n");
 
     if (!is_vp7 && s->actually_webp) {
         // VP8 in WebP is supposed to be intra-only. Enforce this here
@@ -2679,6 +2694,8 @@ int vp78_decode_frame(AVCodecContext *avctx, AVFrame *rframe, int *got_frame,
         }
         avctx->pix_fmt = s->pix_fmt;
     }
+
+    av_log(avctx, AV_LOG_WARNING, "Got here vp8 3\n");
 
     prev_frame = s->framep[VP8_FRAME_CURRENT];
 
